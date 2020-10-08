@@ -1,0 +1,15 @@
+{
+  "name": "pvp_bot",
+  "version": "1.0.0",
+  "description": "A simple PVP bot.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "TheDudeFromCI",
+  "license": "MIT",
+  "dependencies": {
+    "mineflayer": "^2.29.1",
+    "mineflayer-pathfinder": "^1.0.10"
+  }
+}
