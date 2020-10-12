@@ -18,9 +18,6 @@ const bot = mineflayer.createBot({
 bot.loadPlugin(pathfinder)
 bot.loadPlugin(armorManager)
 
-bot.on('kicked', (reason, loggedIn) => console.log(reason, loggedIn))
-bot.on('error', err => console.log(err))
-
 const VIEW_RANGE = 16
 const FOLLOW_RANGE = 2
 const ATTACK_RANGE = 3.75
@@ -48,7 +45,7 @@ function stopGuarding () {
 bot.on('physicTick', () => {
     if (!guardMode) return
 
-    const entity = getNearestTarget()
+    const entity = getNearestTarget(false)
     if (entity && entity.position.distanceTo(bot.entity.position) < VIEW_RANGE) {
         startFighting(entity)
         return
@@ -71,6 +68,8 @@ bot.on('physicTick', () => {
 })
 
 function startFighting (entity) {
+    if (fighting && target === entity) return
+
     fighting = true
     target = entity
 
@@ -85,8 +84,15 @@ function stopFighting () {
     bot.pathfinder.setGoal(null)
 }
 
-function getNearestTarget () {
-    const filter = e => (e.type === 'player' || e.type === 'mob') && e.position.distanceTo(bot.entity.position) < VIEW_RANGE
+function getNearestTarget (players) {
+    const filter = e => {
+        if (e.position.distanceTo(bot.entity.position) > VIEW_RANGE) return false
+        if (e.type !== 'player' && e.type !== 'mob') return false
+        if (e.type === 'player' && !players) return false
+        if (e.type === 'mob' && e.mobType === 'Armor Stand') return false
+
+        return true
+    }
     return bot.nearestEntity(filter)
 }
 
@@ -94,7 +100,7 @@ bot.on('chat', (username, message) => {
     if (username === bot.username) return
 
     if (message === 'go') {
-        const entity = getNearestTarget()
+        const entity = getNearestTarget(true)
 
         if (!entity) {
             bot.chat("I don't see any targets nearby.")
@@ -105,7 +111,14 @@ bot.on('chat', (username, message) => {
     }
 
     if (message === 'guard') {
-        guardArea(bot.entity.position)
+        const player = bot.players[username]
+
+        if (!player) {
+            bot.chat("I can't see you.")
+            return
+        }
+
+        guardArea(player.entity.position)
     }
 
     if (message === 'stop') { 
@@ -116,6 +129,7 @@ bot.on('chat', (username, message) => {
 
 bot.on('physicTick', () => {
     if (bot.pathfinder.isMoving()) return
+    if (fighting) return
 
     const entity = bot.nearestEntity()
     if (entity)
@@ -176,19 +190,21 @@ bot.on('physicTick', () => {
     timeUntilNextAttack = Math.random() * 10 + 10
 })
 
+function hasShield () {
+    if (bot.supportFeature('doesntHaveOffHandSlot')) return false
+
+    const slot = bot.inventory.slots[bot.getEquipmentDestSlot('off-hand')]
+    if (!slot) return false
+
+    return slot.name.includes('shield')
+}
+
 function chargeAttack () {
     if (hasShield() && bot.entity.position.distanceTo(target.position) < ATTACK_RANGE)
         bot.activateItem(true) // Raise shield
 
     const time = Math.random() * 500 + 500
     setTimeout(tryAttack, time)
-}
-
-function hasShield () {
-    if (bot.supportFeature('doesntHaveOffHandSlot')) return false
-    if (!bot.inventory.slots[45]) return false
-
-    return bot.inventory.slots[45].name.includes('shield')
 }
 
 function tryAttack () {
@@ -204,7 +220,7 @@ function tryAttack () {
             
         queue.add(cb => bot.lookAt(target.position.offset(0, target.height, 0), true, cb))
         queue.addSync(bot.attack(target, true))
-        queue.add(cb => setTimeout(cb, 100))
+        queue.add(cb => setTimeout(cb, 150))
 
         queue.runAll(chargeAttack)
     }
