@@ -1,75 +1,176 @@
-const mineflayer = require('mineflayer');
-const { pathfinder, Movements, goals } = require('mineflayer-pathfinder');
-const GoalNear = goals.GoalNear;
-const { Vec3 } = require('vec3');
+const mineflayer = require('mineflayer')
+const collectBlockPlugin = require('mineflayer-collectblock').plugin
+const { Vec3 } = require('vec3')
 
 const bot = mineflayer.createBot({
-  host: 'localhost',
-  port: 42577,
-  username: 'lumberjack_Bot'
+  host: process.argv[2],
+  port: process.argv[3],
+  username: process.argv[4] || 'lumberjack_Bot',
+  password: process.argv[5]
 })
 
-bot.loadPlugin(pathfinder);
+bot.loadPlugin(collectBlockPlugin);
 
-const FARM_POINT_1 = new Vec3(372, 4, 153)
-const FARM_POINT_2 = new Vec3(394, 14, 191)
-const DEPOSIT_CHEST = new Vec3(362, 5, 146)
-const LOG_TYPES = []
+// Tree farm bounds
+const FARM_POINT_1 = new Vec3(265, 76, 283)
+const FARM_POINT_2 = new Vec3(239, 84, 305)
+const FARM_MIN = FARM_POINT_1.min(FARM_POINT_2)
+const FARM_MAX = FARM_POINT_1.max(FARM_POINT_2)
 
+// Load deposit chests
 bot.once('spawn', () => {
-  loadLogTypes()
-  gatherWood()
+  bot.collectBlock.chestLocations.push(new Vec3(244, 75, 274))
+  bot.collectBlock.chestLocations.push(new Vec3(242, 75, 274))
+  bot.collectBlock.chestLocations.push(new Vec3(242, 75, 271))
+  bot.collectBlock.chestLocations.push(new Vec3(243, 75, 271))
+  bot.collectBlock.chestLocations.push(new Vec3(244, 77, 274))
+  bot.collectBlock.chestLocations.push(new Vec3(242, 77, 274))
+  bot.collectBlock.chestLocations.push(new Vec3(242, 77, 271))
+  bot.collectBlock.chestLocations.push(new Vec3(243, 77, 271))
 })
 
-function loadLogTypes () {
-  const mcData = require('minecraft-data')
-  LOG_TYPES.push(mcData.blocksByName.oak_log.id)
-  LOG_TYPES.push(mcData.blocksByName.spruce_log.id)
-  LOG_TYPES.push(mcData.blocksByName.birch_log.id)
-}
+// Load axe retrieval chests
+bot.once('spawn', () => {
+  bot.tool.chestLocations.push(new Vec3(254, 76, 282))
+})
 
-function gatherWood () {
-  const block = findWood(block)
-  if (!block) {
-    setTimeout(gatherWood, 5000)
-    return
+// Load Minecraft Data
+let mcData
+bot.once('spawn', () => {
+  mcData = require('minecraft-data')(bot.version)
+})
+
+// Load log types
+let logTypes
+bot.once('spawn', () => {
+  logTypes = buildIDList([
+    // Before 1.13 logs were called "wood"
+    'oak_wood', 'birch_wood', 'jungle_wood', 'spruce_wood', 'acacia_wood', 'dark_oak_wood',
+
+    // 1.13 and later, logs are called logs
+    'oak_log', 'spruce_log', 'birch_log', 'jungle_log', 'acacia_log', 'dark_oak_log',
+
+    // In 1.16 and later, we have nether trees, too!
+    'crimson_stem', 'warped_stem'
+  ])
+})
+
+// Load dirt types
+let dirtTypes
+bot.once('spawn', () => {
+  dirtTypes = buildIDList([
+    // After 1.13, "grass" was renamed to "grass_block", so we need to check for both
+    'dirt', 'podzol', 'grass', 'grass_block'
+  ])
+})
+
+// Create a list of block IDs from a list of block names
+function buildIDList(names) {
+  const types = []
+  for (const name of names) {
+    const type = mcData.blocksByName[name]
+    if (type) logTypes.push(type.id)
   }
 
-  chopTree(block, () => {
-
-  })
+  return types
 }
 
-function findWood () {
-  for (let x = FARM_POINT_1.x; x <= FARM_POINT_2.x; x++) {
-    for (let z = FARM_POINT_1.z; z <= FARM_POINT_2.z; z++) {
-      for (let y = FARM_POINT_1.y; y <= FARM_POINT_2.y; y++) {
-        const block = bot.blockAt(new Vec3(x, y, z))
-        if (!block) continue
+// Checks if the block is a log
+function isLog (block) {
+  return logTypes.includes(block.type)
+}
 
-        if (LOG_TYPES.indexOf(block.type) > -1)
-          return block
-      }
+// Checks if the block is dirt or grass
+function isDirt (block) {
+  return dirtTypes.includes(block.type)
+}
+
+// Create listeners for tree locations and collect existing trees
+bot.once('spawn', () => {
+
+  // Iterate over all blocks along the bottom of the farm
+  for (let x = FARM_MIN.x; x <= FARM_MAX.x; x++) {
+    for (let z = FARM_MIN.z; z <= FARM_MIN.z; z++) {
+      let pos = new Vec3(x, FARM_MIN.y, z)
+
+      // Only look for dirt blocks, since that's what our trees grow on
+      const block = bot.blockAt(pos)
+      if (!isDirt(block)) continue
+
+      // If we found a tree spot, create an event listener for the block above
+      pos = pos.offset(0, 1, 0)
+      bot.on(`blockUpdate:${pos}`, (oldBlock, newBlock) => collectTree(newBlock))
+
+      // Try and collect the tree if there is one
+      collectTree(block)
     }
   }
+})
+
+let replantLocations = []
+
+// Get all logs in the tree and collect them
+function collectTree (root) {
+  if (!isLog(root)) return
+  const logs = bot.collectBlock.findFromVein(newBlock)
+  bot.collectBlock.collect(logs, { append: true}, logError)
+
+  // Make note that the location needs to be replanted when finished
+  replaceLocations.push(block.position)
 }
 
-function chopTree (block, cb) {
-  breakBlock(block, cb)
+// Log any errors we receive to the console, and declare it in chat.
+function logError (err) {
+  if (err) {
+    bot.chat('An error has occurred.')
+    console.log(err)
+  }
 }
 
-function breakBlock (block, cb) {
-  equipTool(block, () => {
-    bot.dig(block, cb)
-  })
+// Collect any item that drops in the tree farm
+bot.on('itemDrop', (entity) => {
+  if (isInBounds(entity.position)) {
+    bot.collectBlock.collect(logs, { append: true}, logError)
+  }
+})
+
+// Checks if the given position is within the tree farm or not.
+function isInBounds(pos) {
+  return pos.x >= FARM_MIN.x && pos.y >= FARM_MIN.y && pos.z >= FARM_MIN.z &&
+         pos.x <= FARM_MAX.x && pos.y <= FARM_MAX.y && pos.z <= FARM_MAX.z
 }
 
-function equipTool (block, cb) {
-  const tool = bot.pathfinder.bestHarvestTool(block)
-  if (!tool) {
+// Replant any saplings we have
+bot.on('collectBlock_finished', () => {
+  replantSaplings()
+})
+
+// Replant as many saplings as we can
+function replantSaplings (cb) {
+  // Check if we have any locations left that are missing saplings
+  if (replantLocations.length === 0) {
     cb()
     return
   }
 
-  bot.equip(tool, 'hand', cb)
+  // Find a sapling in the bot's inventory
+  const sapling = bot.inventory.items().find(item => item.name.includes('sapling'))
+  if (!sapling) {
+    cb() // Return early if we don't have any more
+    return
+  }
+
+  // Move to the next sapling location and replant it
+  const location = replantLocations.pop()
+  bot.pathfinder.goto(location, (err) => {
+
+    // If we are interrupted because the goal changed because of
+    // collectBlock, we can do nothing and try to finish sometime later.
+    if (err.name === 'GoalChanged') return
+
+    bot.equip(sapling, 'hand', () => {
+      const referenceBlock = bot.blockAt(location.offset(0, -1, 0))
+      bot.placeBlock(referenceBlock, new Vec3(0, 1, 0), () => replantSaplings(cb))
+    })
+  })
 }
