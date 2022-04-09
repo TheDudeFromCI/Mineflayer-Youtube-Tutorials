@@ -1,8 +1,8 @@
 const mineflayer = require('mineflayer')
 
 const bot = mineflayer.createBot({
-  host: 'localhost',
-  port: 37269,
+  host: 'ascunselea.aternos.me',
+  port: 12395,
   username: 'lookAt_Bot'
 })
 
