@@ -1,8 +1,8 @@
 const mineflayer = require('mineflayer')
 
 const bot = mineflayer.createBot({
-  host: 'localhost',
-  port: 40363,
+  host: '112fun.aternos.me',
+  port: 53675,
   username: 'killAura_Bot'
 })
 
